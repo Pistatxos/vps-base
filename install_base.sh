@@ -18,7 +18,10 @@ warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ERR]\033[0m  $*"; }
 
 require_root() {
-  [[ "${EUID}" -ne 0 ]] && err "Ejecuta como root (sudo)" && exit 1
+  if [[ "${EUID}" -ne 0 ]]; then
+    err "Ejecuta como root (sudo)"
+    exit 1
+  fi
 }
 
 ask_with_default() {
