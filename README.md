@@ -1,199 +1,165 @@
-# install_base.sh
+# vps-base
 
-> Script base para preparar servidores Ubuntu nuevos de forma rápida, consistente y reutilizable.
-
----
-
-## 📚 Tabla de contenidos
-- [🚀 Qué hace](#-qué-hace)
-- [🧠 Qué deja preparado](#-qué-deja-preparado)
-- [🧾 Log de instalación](#-log-de-instalación)
-- [❓ Preguntas al inicio](#-preguntas-al-inicio)
-- [⚙️ Cómo usar](#️-cómo-usar)
-- [🧩 Después de ejecutar](#-después-de-ejecutar)
-- [🌐 Cockpit](#-cockpit)
-- [📦 Estructura final](#-estructura-final-del-servidor)
-- [🔐 Seguridad](#-notas-de-seguridad)
-- [🧱 Filosofía](#-filosofía)
-- [🚧 Futuro](#-futuras-mejoras)
+> Scripts de bootstrap para preparar servidores Ubuntu nuevos de forma rápida, consistente y segura.
 
 ---
 
-## 🚀 Qué hace
+## Scripts disponibles
 
-Prepara un servidor desde cero con:
-
-### Sistema
-- `apt update` + `apt upgrade -y`
-- Herramientas base
-
-### Usuario
-- Crea usuario (default `xuser`)
-- Solicita contraseña
-- Añade clave SSH opcional
-- Permisos sudo
-
-### Herramientas
-- git
-- curl
-- wget
-- unzip / zip
-- rsync
-- htop
-- jq
-- openssh-server
-- python3 + pip + venv
-
-### Python
-- pyenv
-- pyenv-virtualenv
-
-### Contenedores
-- Docker CE
-- Docker Compose plugin
-
-### Cloud
-- AWS CLI v2
-
-### Administración
-- Cockpit (opcional)
-- cockpit-pcp (histórico)
+| Script | Modo | Caso de uso |
+|---|---|---|
+| `install_base.sh` | Interactivo | VPS genérica, uso personal, laboratorio |
+| `install_base_dev.sh` | Desatendido | VPS de desarrollo de proyecto |
+| `install_base_prod.sh` | Desatendido | VPS de producción |
 
 ---
 
-## 🧠 Qué deja preparado
+## Cuándo usar cada uno
 
-### Usuario listo
-- SSH
-- sudo
-- docker
+**`install_base.sh`**
+Cuando necesitas montar una máquina rápido y quieres decidir las opciones en el momento.
+Instala la base completa y pregunta qué opcionales quieres.
 
-### Python listo
+**`install_base_dev.sh`** y **`install_base_prod.sh`**
+Cuando montas un entorno de proyecto. Editas las variables de la sección `00` y lanzas.
+DEV instala el toolchain Python completo. PROD solo Docker — Python va en el contenedor.
+
+---
+
+## Base común — los tres scripts
+
+Todos instalan y configuran lo mismo como punto de partida:
+
+- Sistema actualizado (`apt update` + `apt upgrade`)
+- `unattended-upgrades` — parches de seguridad automáticos, sin reboot
+- Herramientas base: git, curl, wget, unzip, rsync, htop, jq
+- Docker CE + Compose plugin
+- Cockpit (`9090`) — administración visual
+- fail2ban — protección SSH (3 intentos / 5 min → ban 1 hora)
+- Endurecimiento SSH completo
+- Bloqueo del usuario `ubuntu`
+- Deploy Key única por servidor (configurable: GitLab / GitHub / Gitea)
+- Historial bash sin persistencia
+- `README_started.md` — generado automáticamente en el home de `xuser` con comandos de referencia para el día a día: Git, Docker, pyenv, procesos, ufw y fail2ban.
+
+> ⚠️ `ufw` se instala en los tres scripts pero **no se activa automáticamente**.
+> Configura las reglas que necesites y actívalo manualmente cuando estés listo.
+> Asegúrate de tener el puerto 22 abierto o acceso por VPN antes de ejecutar `ufw enable`.
+
+
+---
+
+## install_base.sh — interactivo
 
 ```bash
-pyenv install 3.12.12
-pyenv virtualenv 3.12.12 myenv
-pyenv activate myenv
-```
-
-### Carpeta de proyectos
-
-```bash
-/projects
-```
-
-Permisos:
-- owner: usuario
-- grupo: docker
-- modo: `2775`
-
----
-
-## 🧾 Log de instalación
-
-Ruta:
-
-```bash
-/var/log/instalacion/
-```
-
-Ejemplo:
-
-```bash
-instalacion_20260320_101500.log
-```
-
-Incluye:
-- acciones
-- errores
-- versiones
-- servicios
-- resumen sistema
-
----
-
-## ❓ Preguntas al inicio
-
-- Usuario (`xuser` por defecto)
-- Instalar Cockpit (sí por defecto)
-- Contraseña
-- Clave SSH opcional
-
----
-
-## ⚙️ Cómo usar
-
-### Opción recomendada
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/USUARIO/REPO/main/install_base.sh -o install_base.sh
+curl -fsSL https://raw.githubusercontent.com/Pistatxos/vps-base/main/install_base.sh -o install_base.sh
 chmod +x install_base.sh
 sudo ./install_base.sh
 ```
 
+Pregunta al arrancar: usuario, contraseña, plataforma Git, si añadir clave SSH (con opción de omitir si ya estás conectado), y opcionales:
+
+- Python completo (pyenv + pyenv-virtualenv + pipx + Poetry)
+- AWS CLI v2
+- Tailscale
+
 ---
 
-## 🧩 Después de ejecutar
+## install_base_dev.sh — desatendido
 
 ```bash
-sudo -iu xuser
-
-pyenv install 3.12.12
-pyenv virtualenv 3.12.12 app-env
-pyenv global app-env
+curl -fsSL https://raw.githubusercontent.com/Pistatxos/vps-base/main/install_base_dev.sh -o install_base_dev.sh
+chmod +x install_base_dev.sh
+# Editar sección 00 antes de ejecutar
+sudo ./install_base_dev.sh
 ```
+
+Variables de la sección `00`:
+
+| Variable | Descripción |
+|---|---|
+| `XUSER_PASS` | Contraseña para `xuser` |
+| `XUSER_AUTHORIZED_KEYS` | `false` si ya estás conectado por SSH (lo más habitual). `true` si lanzas desde terminal web sin clave previa |
+| `XUSER_PUBKEY` | Clave pública SSH — solo si `XUSER_AUTHORIZED_KEYS=true` |
+| `GIT_HOST` | `gitlab.com` / `github.com` / tu dominio Gitea |
+| `INSTALL_AWSCLI` | `true` / `false` |
+| `INSTALL_TAILSCALE` | `true` / `false` |
+
+Añade sobre la base:
+
+- Python completo: pyenv + pyenv-virtualenv + pipx + Poetry
+- AWS CLI v2 (`INSTALL_AWSCLI=true/false`)
+- Tailscale (`INSTALL_TAILSCALE=true/false`)
 
 ---
 
-## 🌐 Cockpit
+## install_base_prod.sh — desatendido
 
 ```bash
-https://IP_DEL_SERVER:9090
+curl -fsSL https://raw.githubusercontent.com/Pistatxos/vps-base/main/install_base_prod.sh -o install_base_prod.sh
+chmod +x install_base_prod.sh
+# Editar sección 00 antes de ejecutar
+sudo ./install_base_prod.sh
 ```
 
----
+Mismas variables que DEV en la sección `00` (`XUSER_AUTHORIZED_KEYS`, `GIT_HOST`, `INSTALL_AWSCLI`, `INSTALL_TAILSCALE`).
 
-## 📦 Estructura final del servidor
+Diferencias respecto a DEV:
 
-- Usuario configurado
-- `/projects`
-- Docker listo
-- Python versionado
-- Logs en `/var/log/instalacion`
-
----
-
-## 🔐 Notas de seguridad
-
-- Pensado para servidores nuevos
-- Ejecuta upgrade completo
-- Cockpit abre puerto 9090
-
-👉 Recomendado restringir acceso por firewall o VPN
+- Sin Python — va dentro del contenedor
+- Sin dependencias de compilación — menor superficie de ataque
+- SSH más estricto: `MaxAuthTries 2`, `LoginGraceTime 20`, `ClientAliveCountMax 1`
+- Historial bash completamente desactivado (`HISTSIZE=0`) para `xuser` y `root`
+- AWS CLI v2 (`INSTALL_AWSCLI=true/false`)
+- Tailscale (`INSTALL_TAILSCALE=true/false`)
 
 ---
 
-## 🧱 Filosofía
+## Diferencias entre scripts
 
-Bootstrap automático de servidores.
+### Paquetes
 
-Objetivo:
-- consistencia
-- rapidez
-- trazabilidad
+| Componente | install_base | DEV | PROD |
+|---|:---:|:---:|:---:|
+| Herramientas base | ✓ | ✓ | ✓ (mínimas) |
+| Python + pyenv + pipx + Poetry | opcional | ✓ | — |
+| Docker CE | ✓ | ✓ | ✓ |
+| Cockpit | ✓ | ✓ | ✓ |
+| fail2ban | ✓ | ✓ | ✓ |
+| unattended-upgrades | ✓ | ✓ | ✓ |
+| ufw | ✓ | ✓ | ✓ |
+| AWS CLI | opcional | opcional | opcional |
+| Tailscale | opcional | opcional | opcional |
+
+### Seguridad SSH
+
+| Parámetro | install_base | DEV | PROD |
+|---|:---:|:---:|:---:|
+| PermitRootLogin | no | no | no |
+| PasswordAuthentication | no | no | no |
+| AllowTcpForwarding | yes | yes | yes |
+| MaxAuthTries | 3 | 3 | 2 |
+| LoginGraceTime | 30s | 30s | 20s |
+| ClientAliveCountMax | 2 | 2 | 1 |
+| Historial bash | 20 líneas | 20 líneas | desactivado |
 
 ---
 
-## 🚧 Futuras mejoras
+## Seguridad
 
-- modo no interactivo
-- flags (`--user`, `--no-cockpit`)
-- install_project.sh
-- hardening
+- Ningún script guarda secretos en disco ni en el log.
+- Las Deploy Keys son únicas por servidor.
+- `unattended-upgrades` aplica solo parches de seguridad, sin reboot automático.
+- Cockpit accesible solo desde VPN (puerto `9090`).
+- `ufw` se instala pero no se activa — configúralo manualmente antes de habilitarlo.
+- Los `.env` con secretos deben tener `chmod 600` y nunca entrar en Git.
 
 ---
 
-## ⭐ Recomendación
+## Filosofía
 
-Usa este script como base para todos tus servidores.
+Bootstrap reproducible y consistente. El objetivo es que montar un servidor nuevo tarde minutos y no dependa de memoria.
 
+- `install_base.sh` — rapidez e interactividad
+- `install_base_dev.sh` — consistencia en desarrollo
+- `install_base_prod.sh` — seguridad en producción
