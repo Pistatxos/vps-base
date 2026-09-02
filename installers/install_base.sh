@@ -27,9 +27,11 @@ ask_with_default() {
 }
 
 ask_yes_no() {
-  local prompt="$1" reply=""
-  read -r -p "${prompt} [Y/n]: " reply
-  case "${reply}" in ""|Y|y|YES|yes) return 0 ;; *) return 1 ;; esac
+  local prompt="$1" default="${2:-y}" reply="" hint="[Y/n]"
+  [[ "$default" == "n" ]] && hint="[y/N]"
+  read -r -p "${prompt} ${hint}: " reply
+  reply="${reply:-$default}"
+  case "$reply" in Y|y|YES|yes) return 0 ;; *) return 1 ;; esac
 }
 
 ask_hidden_confirmed() {
@@ -102,16 +104,19 @@ echo "  VPS Bootstrap — Configuración inicial"
 echo "=============================================="
 echo ""
 
-TARGET_USER="$(ask_with_default '  Nombre de usuario' 'xuser')"
+DEFAULT_USER="${SUDO_USER:-xuser}"
+[[ "$DEFAULT_USER" == "root" ]] && DEFAULT_USER="xuser"
+TARGET_USER="$(ask_with_default '  Nombre de usuario' "$DEFAULT_USER")"
 
 echo ""
-log "¿Qué hacemos con ${TARGET_USER}?"
-echo "  1) Crear usuario nuevo"
-echo "  2) Ya existe en este servidor — no tocar su contraseña"
-read -r -p "  Opción [1/2]: " USER_OPT
-if [[ "$USER_OPT" == "2" ]]; then
-  CREATE_USER=false
-  id "$TARGET_USER" &>/dev/null || err "El usuario ${TARGET_USER} no existe en este servidor."
+if id "$TARGET_USER" &>/dev/null; then
+  log "El usuario ${TARGET_USER} ya existe en este servidor."
+  if ask_yes_no "  ¿Resetear su contraseña?" n; then
+    CREATE_USER=true
+  else
+    CREATE_USER=false
+    warn "No se tocará su contraseña."
+  fi
 else
   CREATE_USER=true
 fi
@@ -166,7 +171,7 @@ fi
 echo ""
 echo "----------------------------------------------"
 log "Configuración:"
-echo "  Usuario:    ${TARGET_USER} ($([[ "$CREATE_USER" == "true" ]] && echo "nuevo" || echo "existente"))"
+echo "  Usuario:    ${TARGET_USER} ($([[ "$CREATE_USER" == "true" ]] && echo "se crea o se resetea su contraseña" || echo "existente, sin tocar"))"
 echo "  Git host:   ${GIT_HOST}"
 echo "  Python:     ${INSTALL_PYTHON}"
 echo "  AWS CLI:    ${INSTALL_AWSCLI}"

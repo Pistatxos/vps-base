@@ -53,7 +53,9 @@ installers/
 
 ## `installers/install_base.sh` — interactivo
 
-Pregunta siempre, en este orden: usuario (nuevo o ya existente — si es existente no le toca la contraseña), clave SSH a añadir (opcional), plataforma Git para la Deploy Key, y los opcionales Python (uv) / AWS CLI / Tailscale / ZeroTier — estos últimos con **Enter = Sí** (como siempre ha sido: si no quieres algo, contesta que no explícitamente).
+Pregunta siempre, en este orden: nombre de usuario (sugiere tu propio usuario si has entrado con `sudo`, si no `xuser`), clave SSH a añadir (opcional), plataforma Git para la Deploy Key, y los opcionales Python (uv) / AWS CLI / Tailscale / ZeroTier — estos últimos con **Enter = Sí** (como siempre ha sido: si no quieres algo, contesta que no explícitamente).
+
+Sobre el usuario: el script comprueba solo si ya existe. Si no existe, lo crea sin preguntar nada más. Si ya existe, la única pregunta es **"¿Resetear su contraseña?"** (Enter = No, no se toca).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Pistatxos/vps-base/main/installers/install_base.sh -o install_base.sh
@@ -68,8 +70,8 @@ sudo ./install_base.sh
 Pensados para repetir la misma configuración en varios servidores, pero también sirven sueltos y a mano. Tienen una sección **00** con variables, todas vacías por defecto:
 
 ```bash
-TARGET_USER=""       # vacío = pregunta (por defecto xuser)
-CREATE_USER=""       # "true"/"false" — vacío = pregunta
+TARGET_USER=""       # vacío = pregunta (sugiere tu usuario si usaste sudo, si no xuser)
+CREATE_USER=""       # "true" (crear/resetear) / "false" (existente, no tocar) — vacío = se detecta solo
 USER_PASSWORD=""     # solo si CREATE_USER=true
 ADD_SSH_KEY=""       # vacío = pregunta (por defecto No)
 GIT_HOST="gitlab.com"  # fijo — cámbialo aquí si usas GitHub u otro, nunca se pregunta
@@ -78,13 +80,14 @@ INSTALL_TAILSCALE="" # vacío = pregunta (por defecto No)
 INSTALL_ZEROTIER=""  # vacío = pregunta (por defecto No)
 ```
 
-La regla: **variable vacía → se pregunta (con Enter = No en estos toggles). Variable rellena → no se pregunta, se usa tal cual.**
+La regla: **variable vacía → se pregunta o se detecta sola. Variable rellena → no se pregunta, se usa tal cual.**
 
-- Todo en blanco → el script pregunta esas 5 cosas (usuario nuevo/existente + nombre, clave SSH, AWS CLI, Tailscale, ZeroTier) y nada más.
-- Rellena lo que quieras fijo (por ejemplo `CREATE_USER=false` si el usuario ya existe) y esa pregunta desaparece.
+- El usuario no se pregunta si existe o no — el script lo comprueba directamente (`id`). Si no existe, lo crea. Si existe, solo pregunta **"¿Resetear su contraseña?"** (Enter = No).
+- Todo lo demás en blanco → el script pregunta 4 cosas más: clave SSH, AWS CLI, Tailscale, ZeroTier.
+- Rellena lo que quieras fijo (por ejemplo `CREATE_USER=false` para no tocar nunca la contraseña, ni siquiera preguntando) y esa pregunta desaparece.
 - `GIT_HOST` y el toolchain Python **no se preguntan nunca**: `GIT_HOST` es un valor fijo que cambias en el config si no usas GitLab, y Python va implícito — DEV siempre instala `uv`, PROD nunca.
 
-Así ya no hace falta un script aparte para "usuario ya existente": es la misma pregunta la que decide la rama.
+Así ya no hace falta un script aparte para "usuario ya existente": es la misma detección la que decide la rama.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Pistatxos/vps-base/main/installers/install_base_dev.sh -o install_base_dev.sh

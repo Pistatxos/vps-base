@@ -16,7 +16,7 @@ set -euo pipefail
 #     Vacío ("") = el script lo pregunta. Con valor = no pregunta, lo usa.
 # ---------------------------------------------------------------------------
 TARGET_USER=""            # nombre de usuario — vacío = pregunta (por defecto xuser)
-CREATE_USER=""            # "true" (crear nuevo) / "false" (ya existe) — vacío = pregunta
+CREATE_USER=""            # "true" (crear/resetear contraseña) / "false" (existente, no tocar) — vacío = se detecta solo, y si ya existe, pregunta si resetear
 USER_PASSWORD=""          # solo si CREATE_USER=true — vacío = pregunta
 ADD_SSH_KEY=""            # "true"/"false" — vacío = pregunta (por defecto No)
 SSH_KEY=""                # clave pública a añadir, si ADD_SSH_KEY=true
@@ -114,11 +114,17 @@ TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 # ---------------------------------------------------------------------------
 # Preguntas — solo lo que no venga ya relleno en la sección 00
 # ---------------------------------------------------------------------------
-[[ -z "$TARGET_USER" ]] && TARGET_USER="$(ask_with_default '  Nombre de usuario' 'xuser')"
+DEFAULT_USER="${SUDO_USER:-xuser}"
+[[ "$DEFAULT_USER" == "root" ]] && DEFAULT_USER="xuser"
+[[ -z "$TARGET_USER" ]] && TARGET_USER="$(ask_with_default '  Nombre de usuario' "$DEFAULT_USER")"
 
 if [[ -z "$CREATE_USER" ]]; then
-  if ask_yes_no "  ¿El usuario ${TARGET_USER} ya existe en este servidor?" n; then
-    CREATE_USER=false
+  if id "$TARGET_USER" &>/dev/null; then
+    if ask_yes_no "  El usuario ${TARGET_USER} ya existe. ¿Resetear su contraseña?" n; then
+      CREATE_USER=true
+    else
+      CREATE_USER=false
+    fi
   else
     CREATE_USER=true
   fi
