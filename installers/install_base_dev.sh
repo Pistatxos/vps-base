@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  install_base.sh — Bootstrap interactivo para VPS Ubuntu nuevas
+#  install_base_dev.sh — Bootstrap para VPS de desarrollo
 #  Probado en: Ubuntu 22.04 / 24.04
 # =============================================================================
 #  USO:
-#    curl -fsSL https://raw.githubusercontent.com/USUARIO/REPO/main/install_base.sh -o install_base.sh
-#    chmod +x install_base.sh
-#    sudo ./install_base.sh
+#    1. (Opcional) edita las variables de la sección 00 para no responder
+#       nada al lanzarlo — lo que dejes vacío, el script te lo pregunta.
+#    2. chmod +x install_base_dev.sh
+#    3. sudo ./install_base_dev.sh
 # =============================================================================
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# 00. Variables de configuración — opcional, rellena antes de lanzar
+#     Vacío ("") = el script lo pregunta. Con valor = no pregunta, lo usa.
+# ---------------------------------------------------------------------------
+TARGET_USER=""            # nombre de usuario — vacío = pregunta (por defecto xuser)
+CREATE_USER=""            # "true" (crear nuevo) / "false" (ya existe) — vacío = pregunta
+USER_PASSWORD=""          # solo si CREATE_USER=true — vacío = pregunta
+ADD_SSH_KEY=""            # "true"/"false" — vacío = pregunta (por defecto No)
+SSH_KEY=""                # clave pública a añadir, si ADD_SSH_KEY=true
+
+GIT_HOST="gitlab.com"     # gitlab.com / github.com / tu-gitea.com — fijo, no se pregunta
+
+INSTALL_AWSCLI=""         # "true"/"false" — vacío = pregunta (por defecto No)
+INSTALL_TAILSCALE=""      # "true"/"false" — vacío = pregunta (por defecto No)
+INSTALL_ZEROTIER=""       # "true"/"false" — vacío = pregunta (por defecto No)
+ZEROTIER_NETWORK_ID=""    # opcional — si se rellena, se une a esa red al instalar
+
+ENTORNO="DEV"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -18,7 +38,14 @@ ok()   { echo -e "\033[1;32m[ OK ]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ ERR]\033[0m $*"; exit 1; }
 
-require_root() { [[ "${EUID}" -ne 0 ]] && err "Ejecuta como root: sudo ./install_base.sh"; }
+[[ "${EUID}" -ne 0 ]] && err "Ejecuta como root: sudo ./install_base_dev.sh"
+
+# Si venimos de un "curl | bash", stdin lo ocupa curl — reabrimos desde la
+# terminal real por si hay que preguntar algo.
+if [[ ! -t 0 ]]; then
+  [[ -r /dev/tty ]] || err "No hay terminal interactiva y faltan variables por rellenar en la sección 00."
+  exec < /dev/tty
+fi
 
 ask_with_default() {
   local prompt="$1" default="$2" reply=""
@@ -27,9 +54,18 @@ ask_with_default() {
 }
 
 ask_yes_no() {
-  local prompt="$1" reply=""
-  read -r -p "${prompt} [Y/n]: " reply
-  case "${reply}" in ""|Y|y|YES|yes) return 0 ;; *) return 1 ;; esac
+  local prompt="$1" default="${2:-y}" reply="" hint="[Y/n]"
+  [[ "$default" == "n" ]] && hint="[y/N]"
+  read -r -p "${prompt} ${hint}: " reply
+  reply="${reply:-$default}"
+  case "$reply" in Y|y|YES|yes) return 0 ;; *) return 1 ;; esac
+}
+
+resolve_bool() {
+  # resolve_bool VARNAME "pregunta" default(y|n)
+  local __var="$1" prompt="$2" default="${3:-n}"
+  [[ -n "${!__var}" ]] && return
+  if ask_yes_no "$prompt" "$default"; then printf -v "$__var" true; else printf -v "$__var" false; fi
 }
 
 ask_hidden_confirmed() {
@@ -72,117 +108,101 @@ install_awscli() {
   rm -rf "$TMP"
 }
 
-# ---------------------------------------------------------------------------
-# Comprobaciones previas
-# ---------------------------------------------------------------------------
-require_root
-
-# ---------------------------------------------------------------------------
-# Log en disco
-# ---------------------------------------------------------------------------
-LOG_DIR="/var/log/instalacion"
-TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-LOG_FILE="${LOG_DIR}/instalacion_${TIMESTAMP}.log"
-mkdir -p "$LOG_DIR"; touch "$LOG_FILE"; chmod 600 "$LOG_FILE"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-# ---------------------------------------------------------------------------
-# Preguntas iniciales
-# ---------------------------------------------------------------------------
-echo ""
-echo "=============================================="
-echo "  VPS Bootstrap — Configuración inicial"
-echo "=============================================="
-echo ""
-
-TARGET_USER="$(ask_with_default '  Nombre de usuario' 'xuser')"
-
-echo ""
-log "Contraseña para ${TARGET_USER}:"
-ask_hidden_confirmed
-XUSER_PASS="$PASSWORD_RESULT"
-
-echo ""
-log "Plataforma Git para la Deploy Key:"
-echo "  1) GitLab  (gitlab.com)"
-echo "  2) GitHub  (github.com)"
-echo "  3) Otra    (introducir manualmente)"
-read -r -p "  Opción [1/2/3]: " GIT_OPT
-case "$GIT_OPT" in
-  1) GIT_HOST="gitlab.com" ;;
-  2) GIT_HOST="github.com" ;;
-  *) read -r -p "  Host Git (ej: gitea.midominio.com): " GIT_HOST ;;
-esac
-
-echo ""
-log "Clave pública SSH para ${TARGET_USER}:"
-echo "  Si ya estás conectado por SSH, tu clave está en el usuario actual."
-echo "  Puedes omitir esto y copiarla después:"
-echo "    sudo cp ~/.ssh/authorized_keys /home/${TARGET_USER}/.ssh/"
-echo ""
-echo "  1) Pegar directamente"
-echo "  2) Indicar ruta de fichero"
-echo "  3) Omitir (ya conectado o configurar después)"
-read -r -p "  Opción [1/2/3]: " SSH_OPT
-SSH_KEY=""
-case "$SSH_OPT" in
-  1) read -r -p "  Pega la clave pública: " SSH_KEY ;;
-  2) read -r -p "  Ruta del fichero: " SSH_FILE
-     [[ -f "$SSH_FILE" ]] && SSH_KEY="$(cat "$SSH_FILE")" || warn "Fichero no encontrado, se omite." ;;
-  *) warn "Clave SSH omitida. Cópiala manualmente si la necesitas." ;;
-esac
-
-echo ""
-INSTALL_PYTHON=false;    ask_yes_no "  ¿Instalar toolchain Python? (pyenv + pipx + Poetry)" && INSTALL_PYTHON=true    || true
-INSTALL_AWSCLI=false;    ask_yes_no "  ¿Instalar AWS CLI v2?"                                && INSTALL_AWSCLI=true    || true
-INSTALL_TAILSCALE=false; ask_yes_no "  ¿Instalar Tailscale?"                                 && INSTALL_TAILSCALE=true || true
-
-echo ""
-echo "----------------------------------------------"
-log "Configuración:"
-echo "  Usuario:    ${TARGET_USER}"
-echo "  Git host:   ${GIT_HOST}"
-echo "  Python:     ${INSTALL_PYTHON}"
-echo "  AWS CLI:    ${INSTALL_AWSCLI}"
-echo "  Tailscale:  ${INSTALL_TAILSCALE}"
-echo "  Log:        ${LOG_FILE}"
-echo "----------------------------------------------"
-echo ""
-ask_yes_no "  ¿Continuar con la instalación?" || { warn "Instalación cancelada."; exit 0; }
-
 export DEBIAN_FRONTEND=noninteractive
+TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
 # ---------------------------------------------------------------------------
-# 01. Usuario principal
+# Preguntas — solo lo que no venga ya relleno en la sección 00
+# ---------------------------------------------------------------------------
+[[ -z "$TARGET_USER" ]] && TARGET_USER="$(ask_with_default '  Nombre de usuario' 'xuser')"
+
+if [[ -z "$CREATE_USER" ]]; then
+  if ask_yes_no "  ¿El usuario ${TARGET_USER} ya existe en este servidor?" n; then
+    CREATE_USER=false
+  else
+    CREATE_USER=true
+  fi
+fi
+if [[ "$CREATE_USER" == "false" ]]; then
+  id "$TARGET_USER" &>/dev/null || err "El usuario ${TARGET_USER} no existe en este servidor."
+fi
+
+if [[ "$CREATE_USER" == "true" && -z "$USER_PASSWORD" ]]; then
+  log "Contraseña para ${TARGET_USER}:"
+  ask_hidden_confirmed
+  USER_PASSWORD="$PASSWORD_RESULT"
+fi
+
+resolve_bool ADD_SSH_KEY "  ¿Añadir una clave pública SSH ahora?" n
+if [[ "$ADD_SSH_KEY" == "true" && -z "$SSH_KEY" ]]; then
+  echo "  1) Pegar directamente"
+  echo "  2) Indicar ruta de fichero"
+  read -r -p "  Opción [1/2]: " SSH_OPT
+  case "$SSH_OPT" in
+    2) read -r -p "  Ruta del fichero: " SSH_FILE
+       [[ -f "$SSH_FILE" ]] && SSH_KEY="$(cat "$SSH_FILE")" || warn "Fichero no encontrado, se omite." ;;
+    *) read -r -p "  Pega la clave pública: " SSH_KEY ;;
+  esac
+fi
+
+resolve_bool INSTALL_AWSCLI    "  ¿Instalar AWS CLI v2?" n
+resolve_bool INSTALL_TAILSCALE "  ¿Instalar Tailscale?"  n
+resolve_bool INSTALL_ZEROTIER  "  ¿Instalar ZeroTier?"   n
+if [[ "$INSTALL_ZEROTIER" == "true" && -z "$ZEROTIER_NETWORK_ID" ]]; then
+  read -r -p "  ID de red ZeroTier a la que unirte (déjalo en blanco para hacerlo después): " ZEROTIER_NETWORK_ID
+fi
+
+# ---------------------------------------------------------------------------
+# Swap — red de seguridad en VPS con poca RAM
+# ---------------------------------------------------------------------------
+if ! swapon --show | grep -q .; then
+  log "Sin swap activo, creando swapfile de 2G"
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  append_if_missing '/swapfile none swap sw 0 0' /etc/fstab
+  ok "Swap de 2G activado."
+else
+  log "Swap ya activo, se omite."
+fi
+
+# ---------------------------------------------------------------------------
+# 01. Usuario
 # ---------------------------------------------------------------------------
 log "01. Usuario: ${TARGET_USER}"
 
-if ! id "$TARGET_USER" &>/dev/null; then
-  useradd -m -s /bin/bash "$TARGET_USER"
-  ok "Usuario ${TARGET_USER} creado."
+if [[ "$CREATE_USER" == "true" ]]; then
+  if ! id "$TARGET_USER" &>/dev/null; then
+    useradd -m -s /bin/bash "$TARGET_USER"
+    ok "Usuario ${TARGET_USER} creado."
+  else
+    warn "El usuario ${TARGET_USER} ya existe, se continúa."
+  fi
+  TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+  echo "${TARGET_USER}:${USER_PASSWORD}" | chpasswd
 else
-  warn "El usuario ${TARGET_USER} ya existe, se continúa."
+  TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+  warn "Usuario existente, no se modifica su contraseña."
 fi
 
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-echo "${TARGET_USER}:${XUSER_PASS}" | chpasswd
 usermod -aG sudo "$TARGET_USER"
 gpasswd -d "$TARGET_USER" users 2>/dev/null || true
 ok "Usuario configurado."
 
 # ---------------------------------------------------------------------------
-# 02. SSH del usuario
+# 02. SSH de ${TARGET_USER}
 # ---------------------------------------------------------------------------
 log "02. Configurando SSH de ${TARGET_USER}"
 
-SSH_DIR="${TARGET_HOME}/.ssh"
-AUTH_KEYS="${SSH_DIR}/authorized_keys"
-mkdir -p "$SSH_DIR"; touch "$AUTH_KEYS"
-chmod 700 "$SSH_DIR"; chmod 600 "$AUTH_KEYS"
-chown -R "${TARGET_USER}:${TARGET_USER}" "$SSH_DIR"
+mkdir -p "${TARGET_HOME}/.ssh"
+touch "${TARGET_HOME}/.ssh/authorized_keys"
+chmod 700 "${TARGET_HOME}/.ssh"
+chmod 600 "${TARGET_HOME}/.ssh/authorized_keys"
+chown -R "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh"
 
 if [[ -n "$SSH_KEY" ]]; then
-  echo "$SSH_KEY" >> "$AUTH_KEYS"
+  echo "$SSH_KEY" >> "${TARGET_HOME}/.ssh/authorized_keys"
   ok "Clave SSH añadida."
 fi
 
@@ -235,12 +255,27 @@ fi
 # ---------------------------------------------------------------------------
 log "05. Estructura base"
 sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/proyecto"
-ok "Carpeta ~/proyecto creada."
+sed -i '/^ENTORNO=/d' /etc/environment
+echo "ENTORNO=${ENTORNO}" >> /etc/environment
+ok "Carpeta ~/proyecto creada. ENTORNO=${ENTORNO}"
 
 # ---------------------------------------------------------------------------
 # 06. Sistema y herramientas base
 # ---------------------------------------------------------------------------
 log "06. Actualizando sistema e instalando herramientas base"
+
+# Evita que apt-daily/unattended-upgrades compitan por memoria y por el lock
+# de dpkg con la actualización que lanza este script.
+systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+systemctl kill --kill-who=all apt-daily.service         2>/dev/null || true
+systemctl kill --kill-who=all apt-daily-upgrade.service 2>/dev/null || true
+WAIT=0
+while pgrep -x apt-get >/dev/null || pgrep -x apt >/dev/null || pgrep -x dpkg >/dev/null || pgrep -x unattended-upgr >/dev/null; do
+  WAIT=$((WAIT + 1))
+  [[ $WAIT -gt 60 ]] && { warn "Timeout esperando apt/dpkg, se continúa de todas formas."; break; }
+  warn "Esperando a que termine un proceso apt/dpkg en curso..."
+  sleep 3
+done
 
 apt update && apt upgrade -y
 apt install -y \
@@ -256,7 +291,7 @@ apt install -y \
 systemctl enable --now ssh
 ok "Herramientas base instaladas."
 
-# --- fail2ban SSH ---
+# --- fail2ban ---
 cat > /etc/fail2ban/jail.d/sshd.local <<'EOF'
 [sshd]
 enabled  = true
@@ -316,60 +351,31 @@ systemctl enable --now cockpit.socket
 ok "Cockpit instalado. Puerto: 9090"
 
 # ---------------------------------------------------------------------------
-# 09. Toolchain Python (opcional)
+# 09. Toolchain Python: uv
 # ---------------------------------------------------------------------------
-if [[ "$INSTALL_PYTHON" == "true" ]]; then
-  log "09. Instalando Python: pyenv + pipx + Poetry"
+log "09. Instalando Python: uv"
 
-  apt install -y \
-    python3 python3-pip python3-venv \
-    libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
-    libsqlite3-dev llvm libncursesw5-dev xz-utils tk-dev \
-    libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/.local/bin"
 
-  if [[ ! -d "${TARGET_HOME}/.pyenv" ]]; then
-    run_as_user "git clone https://github.com/pyenv/pyenv.git ~/.pyenv"
-  fi
-
-  for FILE in .bashrc .profile; do
-    append_if_missing 'export PYENV_ROOT="$HOME/.pyenv"'    "${TARGET_HOME}/${FILE}"
-    append_if_missing 'export PATH="$PYENV_ROOT/bin:$PATH"' "${TARGET_HOME}/${FILE}"
-    append_if_missing 'eval "$(pyenv init - bash)"'         "${TARGET_HOME}/${FILE}"
-  done
-
-  if [[ ! -d "${TARGET_HOME}/.pyenv/plugins/pyenv-virtualenv" ]]; then
-    run_as_user "git clone https://github.com/pyenv/pyenv-virtualenv.git ~/.pyenv/plugins/pyenv-virtualenv"
-  fi
-
-  for FILE in .bashrc .profile; do
-    append_if_missing 'eval "$(pyenv virtualenv-init -)"' "${TARGET_HOME}/${FILE}"
-  done
-
-  chown -R "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.pyenv"
-
-  sudo -u "$TARGET_USER" python3 -m pip install --user pipx --break-system-packages
-  sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/.local/bin"
-
-  for FILE in .bashrc .profile; do
-    append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' "${TARGET_HOME}/${FILE}"
-  done
-
-  run_as_user "python3 -m pipx ensurepath"
-  run_as_user "/home/${TARGET_USER}/.local/bin/pipx install poetry"
-  chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.bashrc" "${TARGET_HOME}/.profile"
-  ok "Python, pyenv, pipx y Poetry instalados."
-else
-  log "09. Toolchain Python omitido."
+if [[ ! -x "${TARGET_HOME}/.local/bin/uv" ]]; then
+  run_as_user "curl -LsSf https://astral.sh/uv/install.sh | sh"
 fi
+
+for FILE in .bashrc .profile; do
+  append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' "${TARGET_HOME}/${FILE}"
+done
+chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.bashrc" "${TARGET_HOME}/.profile"
+
+run_as_user "uv python install 3.12"
+
+ok "uv instalado (gestiona versiones de Python, entornos virtuales y dependencias)."
 
 # ---------------------------------------------------------------------------
 # 10. AWS CLI (opcional)
 # ---------------------------------------------------------------------------
 if [[ "$INSTALL_AWSCLI" == "true" ]]; then
   log "10. Instalando AWS CLI v2"
-  if install_awscli; then
-    ok "AWS CLI instalado: $(aws --version)"
-  fi
+  if install_awscli; then ok "AWS CLI instalado: $(aws --version)"; fi
 else
   log "10. AWS CLI omitido."
 fi
@@ -387,17 +393,31 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 12. Deploy Key
+# 12. ZeroTier (opcional)
 # ---------------------------------------------------------------------------
-log "12. Generando Deploy Key para ${GIT_HOST}"
+if [[ "$INSTALL_ZEROTIER" == "true" ]]; then
+  log "12. Instalando ZeroTier"
+  curl -fsSL https://install.zerotier.com | bash
+  if [[ -n "$ZEROTIER_NETWORK_ID" ]]; then
+    zerotier-cli join "$ZEROTIER_NETWORK_ID"
+    ok "ZeroTier instalado y unido a la red ${ZEROTIER_NETWORK_ID}."
+  else
+    ok "ZeroTier instalado."
+    warn "Ejecuta 'sudo zerotier-cli join <NETWORK_ID>' para unirte a una red."
+  fi
+else
+  log "12. ZeroTier omitido."
+fi
 
-sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/.ssh"
-chmod 700 "${TARGET_HOME}/.ssh"
+# ---------------------------------------------------------------------------
+# 13. Deploy Key
+# ---------------------------------------------------------------------------
+log "13. Generando Deploy Key para ${GIT_HOST}"
 
 if [[ ! -f "${TARGET_HOME}/.ssh/deploy_key" ]]; then
   sudo -u "$TARGET_USER" ssh-keygen -t ed25519 -a 100 \
     -f "${TARGET_HOME}/.ssh/deploy_key" \
-    -C "deploy-$(hostname)" \
+    -C "deploy-${ENTORNO}-$(hostname)" \
     -N ""
 fi
 
@@ -419,9 +439,9 @@ chown -R "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.ssh"
 ok "Deploy Key generada para ${GIT_HOST}."
 
 # ---------------------------------------------------------------------------
-# 13. Historial bash
+# 14. Historial bash
 # ---------------------------------------------------------------------------
-log "13. Configurando historial bash"
+log "14. Configurando historial bash"
 
 append_if_missing '# Security — historial limitado sin persistencia' "${TARGET_HOME}/.bashrc"
 append_if_missing 'export HISTSIZE=20'                               "${TARGET_HOME}/.bashrc"
@@ -435,12 +455,28 @@ chown "${TARGET_USER}:${TARGET_USER}" "${TARGET_HOME}/.bashrc"
 ok "Historial configurado."
 
 # ---------------------------------------------------------------------------
-# 14. README_started.md
+# 15. README_started.md
 # ---------------------------------------------------------------------------
-log "14. Generando README_started.md"
+log "15. Generando README_started.md"
+
+ZEROTIER_SECTION=""
+if [[ "$INSTALL_ZEROTIER" == "true" ]]; then
+  ZEROTIER_SECTION="
+## ZeroTier
+
+\`\`\`bash
+sudo zerotier-cli info
+sudo zerotier-cli listnetworks
+sudo zerotier-cli join <NETWORK_ID>
+sudo zerotier-cli leave <NETWORK_ID>
+\`\`\`
+
+---
+"
+fi
 
 cat > "${TARGET_HOME}/README_started.md" <<ENDREADME
-# README Started
+# README Started — ${ENTORNO}
 
 > Usuario: \`${TARGET_USER}\` · Trabajo: \`${TARGET_HOME}/proyecto\` · SSH: solo \`${TARGET_USER}\`
 
@@ -505,7 +541,7 @@ sudo docker compose restart <servicio>
 sudo docker ps
 sudo docker ps -a
 sudo docker logs <container>
-sudo docker logs -f <container>    # follow
+sudo docker logs -f <container>
 
 # Exec
 sudo docker exec -it <container> bash
@@ -524,39 +560,36 @@ Accede desde VPN — puerto \`9090\`:
 https://IP_SERVIDOR:9090
 \`\`\`
 
+---
+
+## uv
+
 \`\`\`bash
-sudo systemctl status cockpit.socket
+# Versiones de Python disponibles / instaladas
+uv python list
+uv python install 3.12
+uv python uninstall 3.12
+
+# Entornos virtuales
+uv venv                           # crea .venv en el dir actual
+uv venv --python 3.12
+source .venv/bin/activate
+deactivate
+
+# Dependencias de proyecto (sustituye a Poetry)
+uv init mi-proyecto
+uv add requests
+uv remove requests
+uv sync                           # instala desde pyproject.toml / uv.lock
+uv run python app.py
+
+# Herramientas globales (sustituye a pipx)
+uv tool install ruff
+uv tool run ruff check .          # o: uvx ruff check .
 \`\`\`
 
 ---
-
-## pyenv
-
-\`\`\`bash
-# Versiones disponibles
-pyenv install --list | grep "3\."
-
-# Instalar / eliminar
-pyenv install 3.12.12
-pyenv uninstall 3.12.12
-
-# Versiones instaladas
-pyenv versions
-
-# Global / local
-pyenv global 3.12.12
-pyenv local 3.12.12               # crea .python-version en el dir actual
-
-# Virtualenvs
-pyenv virtualenv 3.12.12 mi-env
-pyenv activate mi-env
-pyenv deactivate
-pyenv virtualenvs
-pyenv virtualenv-delete mi-env
-\`\`\`
-
----
-
+${ZEROTIER_SECTION}
 ## Procesos
 
 \`\`\`bash
@@ -569,9 +602,9 @@ ps aux | grep -E "bash|sh"
 
 # Matar proceso
 kill <PID>
-kill -9 <PID>                     # forzar
-pkill python                      # por nombre
-pkill -f "mi_script.py"           # por nombre de fichero
+kill -9 <PID>
+pkill python
+pkill -f "mi_script.py"
 
 # Buscar qué usa un puerto
 sudo ss -tlnp | grep :8000
@@ -583,24 +616,20 @@ sudo lsof -i :8000
 ## ufw
 
 \`\`\`bash
-# Estado
 sudo ufw status verbose
 sudo ufw status numbered
 
-# Reglas básicas
 sudo ufw allow 22
 sudo ufw allow 80
 sudo ufw allow 443
 sudo ufw deny 8080
 
-# Eliminar regla
 sudo ufw delete allow 8080
-sudo ufw delete <número>          # con status numbered
+sudo ufw delete <número>
 
-# Activar / desactivar
 sudo ufw enable
 sudo ufw disable
-sudo ufw reset                    # borra todas las reglas
+sudo ufw reset
 \`\`\`
 
 ---
@@ -608,17 +637,9 @@ sudo ufw reset                    # borra todas las reglas
 ## fail2ban
 
 \`\`\`bash
-# Estado
 sudo fail2ban-client status
 sudo fail2ban-client status sshd
-
-# IPs baneadas
-sudo fail2ban-client status sshd | grep "Banned IP"
-
-# Desbanear IP
 sudo fail2ban-client set sshd unbanip <IP>
-
-# Log
 sudo tail -f /var/log/fail2ban.log
 \`\`\`
 
@@ -642,35 +663,33 @@ ok "README_started.md generado."
 # ---------------------------------------------------------------------------
 echo ""
 echo "=============================================="
-log "RESUMEN FINAL"
+log "RESUMEN FINAL — ${ENTORNO}"
 echo "=============================================="
-echo ""
-echo "--- Sistema ---";  uname -a
-echo "--- IP ---";       hostname -I
-echo "--- Disco ---";    df -h /
-echo "--- RAM ---";      free -h
+echo ""; echo "--- Sistema ---"; uname -a
+echo ""; echo "--- IP ---";      hostname -I
+echo ""; echo "--- Disco ---";   df -h /
+echo ""; echo "--- RAM ---";     free -h
 echo ""
 echo "--- Versiones ---"
-git --version; docker --version; docker compose version
-[[ "$INSTALL_PYTHON"    == "true" ]] && python3 --version    || true
-[[ "$INSTALL_AWSCLI"    == "true" ]] && aws --version        || true
-[[ "$INSTALL_TAILSCALE" == "true" ]] && tailscale version    || true
+git --version; docker --version; docker compose version; run_as_user "uv --version"
+[[ "$INSTALL_AWSCLI"    == "true" ]] && aws --version     || true
+[[ "$INSTALL_TAILSCALE" == "true" ]] && tailscale version || true
+[[ "$INSTALL_ZEROTIER"  == "true" ]] && zerotier-cli -v   || true
 echo ""
 echo "--- Servicios ---"
-systemctl is-active docker         && ok "docker activo"     || warn "docker inactivo"
-systemctl is-active ssh            && ok "ssh activo"        || warn "ssh inactivo"
-systemctl is-active cockpit.socket && ok "cockpit activo"    || warn "cockpit inactivo"
-systemctl is-active fail2ban       && ok "fail2ban activo"   || warn "fail2ban inactivo"
+systemctl is-active docker         && ok "docker activo"   || warn "docker inactivo"
+systemctl is-active ssh            && ok "ssh activo"      || warn "ssh inactivo"
+systemctl is-active cockpit.socket && ok "cockpit activo"  || warn "cockpit inactivo"
+systemctl is-active fail2ban       && ok "fail2ban activo" || warn "fail2ban inactivo"
 [[ "$INSTALL_TAILSCALE" == "true" ]] && { systemctl is-active tailscaled && ok "tailscale activo" || warn "tailscale inactivo"; }
+[[ "$INSTALL_ZEROTIER"  == "true" ]] && { systemctl is-active zerotier-one && ok "zerotier activo" || warn "zerotier inactivo"; }
 echo ""
-echo "--- Usuario ---";  id "$TARGET_USER"
+echo "--- Usuario ---"; id "${TARGET_USER}"
 echo ""
 echo "--- Deploy Key pública (${GIT_HOST}) ---"
 cat "${TARGET_HOME}/.ssh/deploy_key.pub"
 echo ""
-echo "--- Log ---"; echo "$LOG_FILE"
-echo ""
-ok "Bootstrap completado."
-
-[[ "$INSTALL_PYTHON"    == "true" ]] && echo -e "\nSiguiente (Python):\n  sudo -iu ${TARGET_USER}\n  pyenv install 3.12.12\n  pyenv virtualenv 3.12.12 app-env\n  pyenv global app-env"
+ok "Bootstrap DEV completado."
 [[ "$INSTALL_TAILSCALE" == "true" ]] && echo -e "\nSiguiente (Tailscale):\n  sudo tailscale up"
+[[ "$INSTALL_ZEROTIER"  == "true" && -z "$ZEROTIER_NETWORK_ID" ]] && echo -e "\nSiguiente (ZeroTier):\n  sudo zerotier-cli join <NETWORK_ID>"
+echo -e "\nSiguiente (Python):\n  sudo -iu ${TARGET_USER}\n  uv venv --python 3.12\n  source .venv/bin/activate"
