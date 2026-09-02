@@ -80,8 +80,8 @@ for i in "${!SCRIPTS[@]}"; do
       printf "│ %-*s │ %-*s │ %-*s │\n" "$C1" "" "$C2" "" "$C3" "$line"
     fi
   done < <(fold -s -w "$C3" <<< "${DESCRIPTIONS[$i]:-(sin descripción)}")
+  hline "├" "┼" "┤"
 done
-hline "├" "┼" "┤"
 printf "│ \033[1;33m%-*s\033[0m │ %-*s │ %-*s │\n" "$C1" "0" "$C2" "Salir" "$C3" ""
 hline "└" "┴" "┘"
 echo ""
