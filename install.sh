@@ -16,6 +16,7 @@
 #  Los prompts se leen de /dev/tty para que la opción B también funcione.
 # =============================================================================
 set -euo pipefail
+export LC_ALL=C.UTF-8
 
 REPO_RAW="https://raw.githubusercontent.com/Pistatxos/vps-base/main"
 
@@ -29,17 +30,17 @@ command -v curl >/dev/null || err "Necesitas curl instalado."
 [[ -r /dev/tty ]] || err "No hay terminal interactiva (/dev/tty). Este script necesita poder preguntar."
 
 clear
+echo ""
 printf '\033[1;36m'
 cat <<'BANNER'
-█   █ ████   ████   ████   ███   ████ █████
-█   █ █   █ █       █   █ █   █ █     █
-█   █ █   █ █       █   █ █   █ █     █
-█   █ ████   ███    ████  █████  ███  ████
- █ █  █         █   █   █ █   █     █ █
-  █   █     ████    ████  █   █ ████  █████
+  █   █ ████   ████   ████   ███   ████ █████
+  █   █ █   █ █       █   █ █   █ █     █
+  █   █ ████   ███    ████  █████  ███  ████
+   █ █  █         █   █   █ █   █     █ █
+    █   █     ████    ████  █   █ ████  █████
 BANNER
 printf '\033[0m'
-echo "        Bootstrap para servidores Ubuntu — github.com/Pistatxos/vps-base"
+echo "          Bootstrap para servidores Ubuntu — github.com/Pistatxos/vps-base"
 
 TMP="$(mktemp -d)"
 
@@ -50,15 +51,39 @@ source "${TMP}/scripts.conf"
 
 [[ "${#SCRIPTS[@]}" -eq 0 ]] && { rm -rf "$TMP"; err "scripts.conf no define ningún script."; }
 
+C1=3; C2=22; C3=44
+
+hline() {
+  local l="$1" m="$2" r="$3"
+  printf "%s" "$l"
+  printf '─%.0s' $(seq 1 $((C1 + 2)))
+  printf "%s" "$m"
+  printf '─%.0s' $(seq 1 $((C2 + 2)))
+  printf "%s" "$m"
+  printf '─%.0s' $(seq 1 $((C3 + 2)))
+  printf "%s\n" "$r"
+}
+
 echo ""
-echo "----------------------------------------------"
 echo "  Elige qué instalar:"
-echo "----------------------------------------------"
+echo ""
+hline "┌" "┬" "┐"
+printf "│ %-*s │ \033[1m%-*s\033[0m │ %-*s │\n" "$C1" "#" "$C2" "Script" "$C3" "Descripcion"
+hline "├" "┼" "┤"
 for i in "${!SCRIPTS[@]}"; do
-  printf "  \033[1;33m%d)\033[0m %s\n" "$((i + 1))" "$(basename "${SCRIPTS[$i]}")"
-  printf "     %s\n\n" "${DESCRIPTIONS[$i]:-(sin descripción)}"
+  first=1
+  while IFS= read -r line; do
+    if [[ $first -eq 1 ]]; then
+      printf "│ \033[1;33m%-*s\033[0m │ %-*s │ %-*s │\n" "$C1" "$((i + 1))" "$C2" "$(basename "${SCRIPTS[$i]}")" "$C3" "$line"
+      first=0
+    else
+      printf "│ %-*s │ %-*s │ %-*s │\n" "$C1" "" "$C2" "" "$C3" "$line"
+    fi
+  done < <(fold -s -w "$C3" <<< "${DESCRIPTIONS[$i]:-(sin descripción)}")
 done
-echo "  0) Salir"
+hline "├" "┼" "┤"
+printf "│ \033[1;33m%-*s\033[0m │ %-*s │ %-*s │\n" "$C1" "0" "$C2" "Salir" "$C3" ""
+hline "└" "┴" "┘"
 echo ""
 
 read -r -p "Opción: " OPT < /dev/tty
