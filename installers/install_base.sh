@@ -120,7 +120,7 @@ if [[ "$CREATE_USER" == "true" ]]; then
   echo ""
   log "Contraseña para ${TARGET_USER}:"
   ask_hidden_confirmed
-  XUSER_PASS="$PASSWORD_RESULT"
+  USER_PASSWORD="$PASSWORD_RESULT"
 fi
 
 echo ""
@@ -207,7 +207,7 @@ if [[ "$CREATE_USER" == "true" ]]; then
     warn "El usuario ${TARGET_USER} ya existe, se continúa."
   fi
   TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-  echo "${TARGET_USER}:${XUSER_PASS}" | chpasswd
+  echo "${TARGET_USER}:${USER_PASSWORD}" | chpasswd
 else
   TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
   warn "Usuario existente, no se modifica su contraseña."

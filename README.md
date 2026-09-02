@@ -1,5 +1,9 @@
 # vps-base
 
+<p align="center">
+  <img src="screenshot.png" alt="Menú de install.sh" width="600">
+</p>
+
 > Scripts de bootstrap para preparar servidores Ubuntu nuevos de forma rápida, consistente y segura.
 
 ---
@@ -135,6 +139,7 @@ sudo ./install_base_dev.sh
 - Cockpit pensado para acceso solo desde VPN (puerto `9090`).
 - `ufw` se instala pero no se activa — configúralo manualmente antes de habilitarlo.
 - Los `.env` con secretos deben tener `chmod 600` y nunca entrar en Git.
+- **Usa siempre `https://` con el dominio corto o la URL larga, nunca `http://`.** El comando hace `curl | sudo bash` — si el redirect viaja en claro por HTTP, cualquiera en la ruta de red podría interceptarlo y colar un script distinto antes de llegar a GitHub, y eso se ejecutaría como root. `curl -fsSL` (con `-L`) ya sigue redirecciones HTTPS sin problema; si el dominio corto solo responde en HTTP, usa la URL larga de `raw.githubusercontent.com` en su lugar.
 
 ---
 
