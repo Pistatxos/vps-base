@@ -15,7 +15,7 @@ La forma más cómoda de arrancar: un único comando en la VPS te muestra un men
 **Opción A — todo en un comando** (más rápido, el clásico `curl | bash`):
 
 ```bash
-curl -fsSL https://vps.mariox.es | sudo bash
+curl -fsSL vps.mariox.es | sudo bash
 ```
 
 Si el dominio corto no responde, usa la URL larga:
@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/Pistatxos/vps-base/main/install.sh 
 **Opción B — descargar y luego ejecutar** (más seguro, puedes leer el script antes de lanzarlo):
 
 ```bash
-curl -fsSL https://vps.mariox.es -o install.sh
+curl -fsSL vps.mariox.es -o install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
