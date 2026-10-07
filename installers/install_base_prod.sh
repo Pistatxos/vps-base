@@ -28,7 +28,7 @@ INSTALL_TAILSCALE=""      # "true"/"false" — vacío = pregunta (por defecto No
 INSTALL_ZEROTIER=""       # "true"/"false" — vacío = pregunta (por defecto No)
 ZEROTIER_NETWORK_ID=""    # opcional — si se rellena, se une a esa red al instalar
 
-ENTORNO="PROD"
+ENTORNO="prod"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,7 +84,9 @@ append_if_missing() {
   touch "$file"; grep -qxF "$line" "$file" || echo "$line" >> "$file"
 }
 
-run_as_user() { sudo -u "${TARGET_USER}" -H bash -lc "$*"; }
+run_as_user() {
+  sudo -u "${TARGET_USER}" -H bash -lc 'cd "$HOME" && '"$*"
+}
 
 set_sshd_option() {
   local KEY="$1" VALUE="$2"
